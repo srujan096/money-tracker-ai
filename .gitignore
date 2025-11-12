@@ -1,0 +1,20 @@
+# Ignore virtual environments
+venv/
+.env
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Ignore SQLite database
+instance/*.db
+
+# Ignore model and data files
+*.pkl
+training_data.csv
+
+# Ignore migrations cache (optional)
+migrations/
+
+# Ignore VSCode settings
+.vscode/

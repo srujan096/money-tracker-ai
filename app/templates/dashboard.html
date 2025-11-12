@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-3">Dashboard — {{ month }}/{{ year }}</h2>
+    <h2 class="mb-3">Dashboard — {{ month }}/{{ year }}</h2>
+
+    <form method="GET" action="{{ url_for('main.dashboard') }}" class="d-flex align-items-center mb-3">
+        <label class="me-2">Select Month:</label>
+        <select name="month" class="form-select me-2" style="width:auto;">
+            {% for m in range(1,13) %}
+            <option value="{{ m }}" {% if m==month %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+        </select>
+
+        <label class="me-2">Select Year:</label>
+        <select name="year" class="form-select me-2" style="width:auto;">
+            {% for y in range(2023, 2027) %}
+            <option value="{{ y }}" {% if y==year %}selected{% endif %}>{{ y }}</option>
+            {% endfor %}
+        </select>
+
+        <button class="btn btn-primary ms-2">View</button>
+    </form>
+
+    <h5>Total Spent: ₹{{ "%.2f"|format(total_spent) }} / Budget: ₹{{ "%.2f"|format(total_budget) }}</h5>
+
+    <div class="row mt-4">
+        <!-- Left side: Expenses -->
+        <div class="col-md-6">
+            <h4>Add Expense</h4>
+            <form method="POST" action="{{ url_for('main.add_expense') }}" id="expenseForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="number" name="amount" class="form-control mb-2" placeholder="Amount" required>
+                <input type="text" name="category" id="categoryField" class="form-control mb-2" placeholder="Category"
+                    required>
+                <input type="text" name="note" id="noteField" class="form-control mb-2" placeholder="Note">
+                <small id="suggestedCategory" class="text-muted"></small>
+                <input type="date" name="date" class="form-control mb-2">
+                <button type="submit" class="btn btn-success w-100">Add Expense</button>
+            </form>
+
+
+
+            <hr>
+            <h4>Expenses</h4>
+            <table class="table table-sm table-bordered">
+                <thead class="table-light">
+                    <tr>
+                        <th>Date</th>
+                        <th>Category</th>
+                        <th>Amount</th>
+                        <th>Note</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for e in expenses %}
+                    <tr>
+                        <td>{{ e.date.strftime('%Y-%m-%d') }}</td>
+                        <td>{{ e.category }}</td>
+                        <td>₹{{ e.amount }}</td>
+                        <td>{{ e.note }}</td>
+                        <td>
+                            <form method="POST" action="{{ url_for('main.delete_expense', id=e.id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button class="btn btn-danger btn-sm">×</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Right side: Budgets + Chart -->
+        <div class="col-md-6">
+            <h4>Add Budget</h4>
+            <form method="POST" action="{{ url_for('main.add_budget') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="text" name="category" class="form-control mb-2" placeholder="Category" required>
+                <input type="number" name="limit_amount" class="form-control mb-2" placeholder="Limit (₹)" required>
+                <input type="number" name="month" class="form-control mb-2" placeholder="Month (1-12)" required>
+                <input type="number" name="year" class="form-control mb-2" placeholder="Year" required>
+                <button type="submit" class="btn btn-primary w-100">Add Budget</button>
+            </form>
+
+            <hr>
+            <h4>Budgets</h4>
+            <table class="table table-bordered table-sm">
+                <thead class="table-light">
+                    <tr>
+                        <th>Category</th>
+                        <th>Limit (₹)</th>
+                        <th>Month</th>
+                        <th>Year</th>
+                        <th>Spent (₹)</th>
+                        <th>Remaining (₹)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for b in budgets %}
+                    {% set spent = 0 %}
+                    {% for e in expenses if e.category == b.category %}
+                    {% set spent = spent + e.amount %}
+                    {% endfor %}
+                    {% set remaining = b.limit_amount - spent %}
+                    <tr
+                        class="{% if remaining < 0 %}table-danger{% elif remaining < b.limit_amount * 0.1 %}table-warning{% else %}table-light{% endif %}">
+                        <td>{{ b.category }}</td>
+                        <td>{{ b.limit_amount }}</td>
+                        <td>{{ b.month }}</td>
+                        <td>{{ b.year }}</td>
+                        <td>{{ spent }}</td>
+                        <td>{{ remaining|round(2) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+
+            <hr>
+            <h4>Spending Breakdown</h4>
+            <canvas id="spendPie" height="200"></canvas>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const ctx = document.getElementById('spendPie');
+    const data = {
+        labels: {{ categories | tojson }},
+    datasets: [{
+        data: {{ amounts | tojson }},
+        backgroundColor: [
+        '#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc949',
+        '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab'
+    ]
+  }]
+};
+    new Chart(ctx, { type: 'pie', data: data });
+    <hr>
+        <form method="POST" action="{{ url_for('main.retrain_model_route') }}" onsubmit="return confirm('Retrain model now? This may take a few seconds.')">
+            <button class="btn btn-warning w-100 mt-2">🔄 Retrain AI Model</button>
+        </form>
+
+
+
+    // ✅ Auto-category suggestion logic
+        document.getElementById("noteField").addEventListener("input", async function () {
+        const note = this.value.trim();
+        if (note.length < 3) return; // don't trigger too early
+
+        const response = await fetch("{{ url_for('main.predict_category_route') }}", {
+            method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+            },
+        body: JSON.stringify({note: note })
+        });
+
+        const data = await response.json();
+        if (data.category) {
+            document.getElementById("suggestedCategory").innerText = "Suggested: " + data.category;
+        document.getElementById("categoryField").value = data.category;
+        } else {
+            document.getElementById("suggestedCategory").innerText = "";
+        }
+    });
+</script>
+<hr>
+<form method="POST" action="{{ url_for('main.retrain_model_route') }}"
+    onsubmit="return confirm('Retrain the AI model now? This may take a few seconds.')">
+    <button class="btn btn-warning w-100 mt-3">🔄 Retrain AI Model</button>
+</form>
+
+{% endblock %}
